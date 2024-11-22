@@ -7,16 +7,43 @@ import {ERC1155Pausable} from "@openzeppelin/contracts/token/ERC1155/extensions/
 import {ERC1155Supply} from "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/finance/PaymentSplitter.sol";
 
-contract MyToken is ERC1155, Ownable, ERC1155Pausable, ERC1155Supply {
+contract MyToken is ERC1155, Ownable, ERC1155Pausable, ERC1155Supply, PaymentSplitter {
 
-    uint256 public publicPrice = 0.01 ether;
+    uint256 public publicPrice = 0.02 ether;
+    uint256 public allowListPrice = 0.01 ether;
     uint256 public maxSupply = 2000;
+    uint public maxPerWallet = 3;
 
-    constructor()
+    bool public publicMintOpen = false;
+    bool public allowListMintOpen = true;
+
+    mapping(address => bool) allowList;
+    mapping(address => uint256) purchasesPerWallet;
+
+    constructor(
+        address[] memory _payess, 
+        uint256[] memory _shares
+    )
         ERC1155("ipfs://Qmaa6TuP2s9pSKczHF4rwWhTKUdygrrDs8RmYYqCjP3Hye/")
         Ownable(msg.sender)
+        PaymentSplitter(_payess, _shares)
     {}
+
+    // Create a function to set the allow list
+    function setAllowlist(address[] calldata addresses) external onlyOwner {
+        for (uint256 i = 0; i < addresses.length; i++) 
+        {
+            allowList[addresses[i]] = true;   
+        }
+    }
+
+    // Create an edit function that will edit the mint windows
+    function editMintWindows(bool _publicMintOpen, bool _allowListMintOpen) external onlyOwner {
+        publicMintOpen = _publicMintOpen;
+        allowListMintOpen = _allowListMintOpen;
+    }
 
     function setURI(string memory newuri) public onlyOwner {
         _setURI(newuri);
@@ -30,15 +57,29 @@ contract MyToken is ERC1155, Ownable, ERC1155Pausable, ERC1155Supply {
         _unpause();
     }
 
+    function mint(uint256 id, uint256 amount) internal {
+        require(purchasesPerWallet[msg.sender] + amount <= maxPerWallet, "Wallet limit reached");
+        require(totalSupply(id) + amount <= maxSupply, "Sorry we have minted out!");
+        require(id < 2, "Sorry looks like you're trying to mint the wrong NFT");
+        _mint(msg.sender, id, amount, "");
+        purchasesPerWallet[msg.sender] += amount;
+    }
+
+    function allowListMint(uint256 id, uint256 amount) public payable {
+        require(allowList[msg.sender], "You are not on the allowlist");
+        require(allowListMintOpen, "Allow list mint is closed");
+        require(msg.value == allowListPrice * amount);
+        mint(id, amount);
+    }
+
     // add supply tracking
-    function mint(uint256 id, uint256 amount)
+    function publicMint(uint256 id, uint256 amount)
         public
         payable
     {
-        require(id < 2, "Sorry looks like you're trying to mint the wrong NFT");
-        require(msg.value == (publicPrice * amount), "WRONG! Not enouth money sent");
-        require(totalSupply(id) + amount <= maxSupply, "Sorry we have minted out!");
-        _mint(msg.sender, id, amount, "");
+        require(publicMintOpen, "Public mint closed");
+        require(msg.value == publicPrice * amount);
+        mint(id, amount);
     }
 
     function mintBatch(address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data)
@@ -67,8 +108,8 @@ contract MyToken is ERC1155, Ownable, ERC1155Pausable, ERC1155Supply {
     *
     * @param _addr the address we are sending the CAYYYYYYUSH to
     */
-    function withdraw(address _addr) external onlyOwner {
-        uint256 balance = address(this).balance; // get the balance of the contract
-        payable(_addr).transfer(balance);
-    }
+    // function withdraw(address _addr) external onlyOwner {
+    //     uint256 balance = address(this).balance; // get the balance of the contract
+    //     payable(_addr).transfer(balance);
+    // }
 }
